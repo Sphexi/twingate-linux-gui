@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QApplication,
@@ -221,9 +221,9 @@ class TwingateSystemTray(QSystemTrayIcon):
             # Truncate stderr to prevent excessively long notifications
             stderr = result.stderr[:MAX_NOTIFICATION_LEN]
             self._warn(f"{name} failed: {stderr}")
-        # Rebuild the menu immediately so greyed-out actions are restored,
-        # then also force a poll to pick up the new state.
-        self._build_menu()
+        # Defer menu rebuild to next event loop iteration (ensures we're
+        # on the main thread and not inside a cross-thread signal handler).
+        QTimer.singleShot(0, self._build_menu)
         self._poller.force_poll()
 
     # ------------------------------------------------------------------
