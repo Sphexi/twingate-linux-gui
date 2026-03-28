@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Twingate Tray
+Comment=System tray application for Twingate VPN
+Exec=twingate-tray
+Icon=network-vpn
+Terminal=false
+Categories=Network;System;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-phase=2

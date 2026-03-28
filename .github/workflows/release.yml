@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Only run if the tag points to a commit on main
+    if: github.ref_type == 'tag'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main branch
+        run: |
+          # Ensure the tagged commit is reachable from main
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag must point to a commit on the main branch."
+            exit 1
+          fi
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libegl1
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          pip install pyinstaller
+
+      - name: Run tests before build
+        run: |
+          ruff check src/ tests/
+          mypy src/
+          pytest tests/ -v --tb=short
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build PyInstaller binary
+        run: pyinstaller packaging/twingate-tray.spec
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Build .deb package
+        run: |
+          DEB_DIR="twingate-tray_${VERSION}_amd64"
+          mkdir -p "${DEB_DIR}/DEBIAN"
+          mkdir -p "${DEB_DIR}/usr/local/bin"
+          mkdir -p "${DEB_DIR}/usr/share/polkit-1/actions"
+          mkdir -p "${DEB_DIR}/usr/share/applications"
+
+          # Control file
+          sed "s/{{VERSION}}/${VERSION}/g" packaging/deb/DEBIAN/control > "${DEB_DIR}/DEBIAN/control"
+
+          # Binary
+          cp dist/twingate-tray "${DEB_DIR}/usr/local/bin/"
+          chmod 755 "${DEB_DIR}/usr/local/bin/twingate-tray"
+
+          # Polkit policy
+          cp src/twingate_tray/resources/org.twingatetray.policy "${DEB_DIR}/usr/share/polkit-1/actions/"
+
+          # Desktop file
+          cp packaging/twingate-tray.desktop "${DEB_DIR}/usr/share/applications/"
+
+          dpkg-deb --build "${DEB_DIR}"
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+
+      - name: Generate checksums
+        run: |
+          sha256sum dist/twingate-tray > checksums-sha256.txt
+          sha256sum "twingate-tray_${VERSION}_amd64.deb" >> checksums-sha256.txt
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@da05a4b9a6525837b484c4f662beab3bcdf7bbe5  # v2.3.2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/twingate-tray
+            twingate-tray_${{ steps.version.outputs.VERSION }}_amd64.deb
+            scripts/install.sh
+            checksums-sha256.txt
