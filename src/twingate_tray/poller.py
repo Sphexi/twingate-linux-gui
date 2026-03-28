@@ -48,9 +48,9 @@ class StatusPoller(QObject):
 
     def start(self) -> None:
         """Start polling."""
-        self._poll()  # immediate first check
         self._timer.start(self._interval_ms)
         logger.info("StatusPoller started (interval=%dms)", self._interval_ms)
+        self._poll()  # immediate first check
 
     def stop(self) -> None:
         """Stop polling."""
@@ -65,6 +65,7 @@ class StatusPoller(QObject):
 
     def _poll(self) -> None:
         """Run the status check and emit the result."""
+        logger.info("Poll starting (timer active=%s)", self._timer.isActive())
         try:
             status = self._client.status()
         except Exception:
@@ -80,3 +81,4 @@ class StatusPoller(QObject):
             )
             self._last_state = status.state
         self.status_changed.emit(status)
+        logger.info("Poll complete (timer active=%s)", self._timer.isActive())

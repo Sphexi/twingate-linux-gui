@@ -200,6 +200,20 @@ class TwingateSystemTray(QSystemTrayIcon):
                 continue
             action.setEnabled(False)
 
+    def _enable_menu_actions(self) -> None:
+        """Re-enable all menu actions (after a command completes or poll arrives)."""
+        menu = self.contextMenu()
+        if menu is None:
+            return
+        for action in menu.actions():
+            if action.isSeparator():
+                continue
+            action.setEnabled(True)
+        # Status line stays disabled (not clickable)
+        first = menu.actions()[0] if menu.actions() else None
+        if first and not first.isSeparator():
+            first.setEnabled(False)
+
     def _on_command_finished(self, name: str, result: object) -> None:
         """Handle command completion on the main thread."""
         logger.info("Command finished: %s -> %s", name, result)
@@ -410,22 +424,25 @@ class TwingateSystemTray(QSystemTrayIcon):
         state_changed = old_state != status.state
         self._current_status = status
 
-        # Always update icon + tooltip + menu
+        # Always update icon + tooltip
         self.setIcon(self._icons.get_icon(status.state))
         label = _STATE_LABELS.get(status.state, "Unknown")
         self.setToolTip(f"twingate-tray \u2014 {label}")
-        self._build_menu()
 
-        # Only notify on actual state transitions
-        if not state_changed:
-            return
+        # Re-enable any greyed-out actions
+        self._enable_menu_actions()
 
-        # Suppress notification on first poll (app startup)
-        if self._is_first_poll:
-            self._is_first_poll = False
-            return
+        # Only rebuild the full menu on state changes
+        if state_changed:
+            logger.info("State changed: %s -> %s, rebuilding menu", old_state, status.state)
+            self._build_menu()
 
-        self._notify_state_change(old_state, status)
+            # Suppress notification on first poll (app startup)
+            if self._is_first_poll:
+                self._is_first_poll = False
+                return
+
+            self._notify_state_change(old_state, status)
 
     # ------------------------------------------------------------------
     # Helpers
