@@ -101,6 +101,7 @@ def main() -> int:
     test("TEST 8: _validate_arg accepts real-world values")
     test_values = [
         ("Seattle Exit Network - Vultr3", "exit_node"),
+        ("\U0001f464 Seattle Exit Network - Vultr3", "exit_node_with_emoji"),
         ("user@example.com:acme", "account"),
         ("my-resource.internal.com", "resource"),
         ("My Company (Production)", "network"),

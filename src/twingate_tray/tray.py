@@ -207,6 +207,9 @@ class TwingateSystemTray(QSystemTrayIcon):
             # Truncate stderr to prevent excessively long notifications
             stderr = result.stderr[:MAX_NOTIFICATION_LEN]
             self._warn(f"{name} failed: {stderr}")
+        # Rebuild the menu immediately so greyed-out actions are restored,
+        # then also force a poll to pick up the new state.
+        self._build_menu()
         self._poller.force_poll()
 
     # ------------------------------------------------------------------
@@ -402,26 +405,27 @@ class TwingateSystemTray(QSystemTrayIcon):
     # ------------------------------------------------------------------
 
     def _on_status_changed(self, status: TwingateStatus) -> None:
-        """React to a connection state change from the poller."""
+        """React to a status update from the poller (fires on every poll)."""
         old_state = self._current_status.state
+        state_changed = old_state != status.state
         self._current_status = status
 
-        # Update icon + tooltip
+        # Always update icon + tooltip + menu
         self.setIcon(self._icons.get_icon(status.state))
         label = _STATE_LABELS.get(status.state, "Unknown")
         self.setToolTip(f"twingate-tray \u2014 {label}")
-
-        # Rebuild the menu to reflect new connection actions
         self._build_menu()
+
+        # Only notify on actual state transitions
+        if not state_changed:
+            return
 
         # Suppress notification on first poll (app startup)
         if self._is_first_poll:
             self._is_first_poll = False
             return
 
-        # Desktop notification on meaningful transitions
-        if old_state != status.state:
-            self._notify_state_change(old_state, status)
+        self._notify_state_change(old_state, status)
 
     # ------------------------------------------------------------------
     # Helpers

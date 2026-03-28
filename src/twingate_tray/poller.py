@@ -118,11 +118,12 @@ class StatusPoller(QObject):
     def _on_status_ready(self, status: TwingateStatus) -> None:
         """Handle a fresh status from the worker thread."""
         self._busy = False
-        logger.info(
-            "Status polled: %s (previous: %s)",
-            status.state.value,
-            self._last_state.value if self._last_state else "None",
-        )
-        if self._last_state != status.state:
+        changed = self._last_state != status.state
+        if changed:
+            logger.info(
+                "Status changed: %s -> %s",
+                self._last_state.value if self._last_state else "None",
+                status.state.value,
+            )
             self._last_state = status.state
-            self.status_changed.emit(status)
+        self.status_changed.emit(status)

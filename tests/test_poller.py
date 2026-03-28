@@ -83,26 +83,27 @@ class TestStatusPoller:
         # Timer should still not be active — setter must not start it
         assert not poller._timer.isActive()
 
-    def test_on_status_ready_emits_on_change(self) -> None:
+    def test_on_status_ready_emits_on_every_poll(self) -> None:
+        """status_changed fires on every poll so the tray always refreshes."""
         client = TwingateClient()
         poller = StatusPoller(client)
 
         received: list[TwingateStatus] = []
         poller.status_changed.connect(received.append)
 
-        # First status — should emit (None -> ONLINE)
+        # First status — should emit
         status1 = TwingateStatus(state=ConnectionState.ONLINE)
         poller._on_status_ready(status1)
         assert len(received) == 1
 
-        # Same status — should NOT emit
+        # Same status — should still emit (tray needs to rebuild)
         poller._on_status_ready(status1)
-        assert len(received) == 1
+        assert len(received) == 2
 
         # Different status — should emit
         status2 = TwingateStatus(state=ConnectionState.OFFLINE)
         poller._on_status_ready(status2)
-        assert len(received) == 2
+        assert len(received) == 3
 
     def test_on_status_ready_emits_on_transition_online_to_paused(self) -> None:
         """_on_status_ready emits when state transitions from ONLINE to PAUSED."""

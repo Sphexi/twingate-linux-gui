@@ -17,8 +17,9 @@ PRIVILEGED_TIMEOUT = 30  # seconds for state-changing commands
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 # Pattern for validating CLI arguments (account names, node IDs, resource names).
-# Allows Unicode word characters to support names like "Seattle Exit Network - Vultr".
-_SAFE_ARG_RE = re.compile(r"^[\w .@:/()\-]+$", re.UNICODE)
+# Rejects shell metacharacters (;|`$&<>!) while allowing Unicode (including emoji)
+# since Twingate uses emoji prefixes in exit node names.
+_SAFE_ARG_RE = re.compile(r"^[^;|`$&<>!\t\n\r]+$")
 
 
 def _clean_cli_name(line: str) -> str:
@@ -286,7 +287,9 @@ class TwingateClient:
         state_map: dict[str, ConnectionState] = {
             "online": ConnectionState.ONLINE,
             "offline": ConnectionState.OFFLINE,
+            "not-running": ConnectionState.OFFLINE,
             "connecting": ConnectionState.CONNECTING,
+            "authenticating": ConnectionState.CONNECTING,
             "paused": ConnectionState.PAUSED,
         }
         state = state_map.get(first_line, ConnectionState.UNKNOWN)
@@ -409,8 +412,8 @@ class TwingateClient:
                 continue
             if line.lower().startswith("non-") or line.lower().startswith("all "):
                 continue
-            # Split on 2+ whitespace to separate columns (name vs time-left)
-            parts = re.split(r"\s{2,}", line)
+            # Split on tabs or 2+ spaces to separate columns (name vs time-left)
+            parts = re.split(r"\t|\s{2,}", line)
             raw_name = parts[0].strip() if parts else line.strip()
             is_active = bool(re.search(r"[✓✔*]", raw_name))
             # Clean name for display, but preserve raw name for CLI commands.
