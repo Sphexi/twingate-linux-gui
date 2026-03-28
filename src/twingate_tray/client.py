@@ -13,6 +13,9 @@ PKEXEC_BIN = "/usr/bin/pkexec"
 DEFAULT_TIMEOUT = 15  # seconds for read-only commands
 PRIVILEGED_TIMEOUT = 30  # seconds for state-changing commands
 
+# Regex to strip ANSI escape codes from CLI output
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
 # Pattern for validating CLI arguments (account names, node IDs, resource names).
 # Allows Unicode word characters to support names like "Seattle Exit Network - Vultr".
 _SAFE_ARG_RE = re.compile(r"^[\w .@:/()\-]+$", re.UNICODE)
@@ -99,6 +102,12 @@ class TwingateExitNode:
 
     name: str
     is_active: bool = False
+    cli_name: str = ""
+
+    def __post_init__(self) -> None:
+        """Default cli_name to name if not set."""
+        if not self.cli_name:
+            self.cli_name = self.name
 
 
 class TwingateClient:
@@ -137,8 +146,8 @@ class TwingateClient:
             )
             return CommandResult(
                 success=result.returncode == 0,
-                stdout=result.stdout.strip(),
-                stderr=result.stderr.strip(),
+                stdout=_ANSI_RE.sub("", result.stdout).strip(),
+                stderr=_ANSI_RE.sub("", result.stderr).strip(),
                 returncode=result.returncode,
             )
         except subprocess.TimeoutExpired:
@@ -404,8 +413,15 @@ class TwingateClient:
             parts = re.split(r"\s{2,}", line)
             raw_name = parts[0].strip() if parts else line.strip()
             is_active = bool(re.search(r"[✓✔*]", raw_name))
-            name = _clean_cli_name(raw_name)
-            if name:
-                nodes.append(TwingateExitNode(name=name, is_active=is_active))
+            # Clean name for display, but preserve raw name for CLI commands.
+            # The CLI expects the full name including emoji prefix.
+            display_name = _clean_cli_name(raw_name)
+            # For cli_name: strip only active markers, keep emoji
+            cli_name = re.sub(r"[✓✔*]", "", raw_name).strip()
+            cli_name = re.sub(r"^\s*[-•]\s*", "", cli_name).strip()
+            if display_name:
+                nodes.append(TwingateExitNode(
+                    name=display_name, is_active=is_active, cli_name=cli_name,
+                ))
 
         return nodes

@@ -184,7 +184,21 @@ class TwingateSystemTray(QSystemTrayIcon):
     ) -> None:
         """Dispatch a client command to the background thread."""
         logger.info("Dispatching command: %s (method=%s, args=%s)", name, method_name, args)
+        self._disable_menu_actions()
         self._cmd_worker.run_command(name, method_name, args)
+
+    def _disable_menu_actions(self) -> None:
+        """Grey out all menu actions while a command is in flight."""
+        menu = self.contextMenu()
+        if menu is None:
+            return
+        for action in menu.actions():
+            if action.isSeparator():
+                continue
+            # Keep status line (already disabled) and Quit always enabled
+            if action.text() == "Quit":
+                continue
+            action.setEnabled(False)
 
     def _on_command_finished(self, name: str, result: object) -> None:
         """Handle command completion on the main thread."""
@@ -374,7 +388,7 @@ class TwingateSystemTray(QSystemTrayIcon):
                 act.setChecked(node.is_active)
                 if not node.is_active:
                     act.triggered.connect(
-                        lambda _c, n=node.name: self._switch_exit_node(n)
+                        lambda _c, n=node.cli_name: self._switch_exit_node(n)
                     )
 
             self._exit_nodes_menu.addSeparator()

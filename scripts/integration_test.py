@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, "src")
 
-from twingate_tray.client import (  # noqa: E402
+from twingate_tray.client import (
     CommandResult,
     ConnectionState,
     TwingateClient,
@@ -177,11 +177,11 @@ def main() -> int:
     if len(nodes) != 2:
         fail(f"Expected 2 nodes, got {len(nodes)}")
     elif not nodes[0].is_active:
-        fail(f"First node should be active")
+        fail("First node should be active")
     elif nodes[0].name != "US East Node":
         fail(f"Wrong name for active node: {nodes[0].name!r}")
     elif nodes[1].is_active:
-        fail(f"Second node should not be active")
+        fail("Second node should not be active")
     else:
         for node in nodes:
             print(f"    name={node.name!r} active={node.is_active}")
@@ -271,7 +271,7 @@ def main() -> int:
 
     print("\n=============================================")
     if failures == 0:
-        print(f"ALL 15 TESTS PASSED")
+        print("ALL 15 TESTS PASSED")
     else:
         print(f"{failures} TEST(S) FAILED")
     print("=============================================")
