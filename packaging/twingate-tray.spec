@@ -7,7 +7,9 @@ import sys
 
 block_cipher = None
 
-PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(SPECPATH), ".."))
+# SPECPATH is set by PyInstaller to the directory containing this spec file.
+# The project root is one level up from packaging/.
+PROJECT_DIR = os.path.abspath(os.path.join(SPECPATH, ".."))
 SRC_DIR = os.path.join(PROJECT_DIR, "src")
 
 a = Analysis(
