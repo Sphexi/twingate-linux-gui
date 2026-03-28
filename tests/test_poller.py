@@ -204,10 +204,12 @@ class TestStatusPoller:
         mock_thread.isRunning.return_value = True
         poller._thread = mock_thread
 
-        with patch("twingate_tray.poller.QTimer.singleShot"):
-            poller._poll()
+        # Mock the worker trigger signal so emit doesn't actually run
+        poller._worker.trigger = MagicMock()
+        poller._poll()
 
         assert poller._busy is True
+        poller._worker.trigger.emit.assert_called_once()
 
     def test_poll_is_noop_when_thread_is_not_running(self) -> None:
         """_poll does not set _busy or dispatch work when the thread is not running."""
@@ -219,11 +221,11 @@ class TestStatusPoller:
         mock_thread.isRunning.return_value = False
         poller._thread = mock_thread
 
-        with patch("twingate_tray.poller.QTimer.singleShot") as mock_single_shot:
-            poller._poll()
+        poller._worker.trigger = MagicMock()
+        poller._poll()
 
         assert poller._busy is False
-        mock_single_shot.assert_not_called()
+        poller._worker.trigger.emit.assert_not_called()
 
     def test_force_poll_calls_single_shot_with_500ms(self) -> None:
         """force_poll schedules _poll via QTimer.singleShot with a 500ms delay."""

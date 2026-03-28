@@ -13,10 +13,12 @@ class StatusWorker(QObject):
     """Runs the blocking ``twingate status`` call in a background thread."""
 
     status_ready = pyqtSignal(object)  # emits TwingateStatus
+    trigger = pyqtSignal()  # used to invoke check_status across threads
 
     def __init__(self, client: TwingateClient) -> None:
         super().__init__()
         self._client = client
+        self.trigger.connect(self.check_status)
 
     def check_status(self) -> None:
         """Execute the status check and emit the result."""
@@ -93,7 +95,7 @@ class StatusPoller(QObject):
             return  # skip if a poll is already in flight
         if self._thread.isRunning():
             self._busy = True
-            QTimer.singleShot(0, self._worker.check_status)
+            self._worker.trigger.emit()
 
     def _on_status_ready(self, status: TwingateStatus) -> None:
         """Handle a fresh status from the worker thread."""

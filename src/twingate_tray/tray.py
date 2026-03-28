@@ -4,11 +4,10 @@ import html
 import logging
 import shutil
 import subprocess
-from functools import partial
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QApplication,
@@ -95,15 +94,23 @@ class CommandWorker(QObject):
     """Runs blocking TwingateClient commands off the main thread."""
 
     finished = pyqtSignal(str, object)  # (command_name, result)
+    trigger = pyqtSignal(str, str, tuple)  # (name, method_name, args)
 
     def __init__(self, client: TwingateClient) -> None:
         super().__init__()
         self._client = client
+        self.trigger.connect(self._execute)
 
     def run_command(
         self, name: str, method_name: str, args: tuple[Any, ...] = ()
     ) -> None:
-        """Execute a client method and emit the result."""
+        """Queue a command for execution on the worker thread."""
+        self.trigger.emit(name, method_name, args)
+
+    def _execute(
+        self, name: str, method_name: str, args: tuple[Any, ...]
+    ) -> None:
+        """Execute a client method and emit the result (runs on worker thread)."""
         if method_name not in _ALLOWED_METHODS:
             logger.error("Blocked disallowed method: %s", method_name)
             return
@@ -177,10 +184,7 @@ class TwingateSystemTray(QSystemTrayIcon):
     ) -> None:
         """Dispatch a client command to the background thread."""
         logger.info("Dispatching command: %s (method=%s, args=%s)", name, method_name, args)
-        QTimer.singleShot(
-            0,
-            partial(self._cmd_worker.run_command, name, method_name, args),
-        )
+        self._cmd_worker.run_command(name, method_name, args)
 
     def _on_command_finished(self, name: str, result: object) -> None:
         """Handle command completion on the main thread."""

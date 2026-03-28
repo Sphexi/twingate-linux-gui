@@ -1,5 +1,11 @@
-# Virtual environment
+# Virtual environment (any location)
 .venv/
+bin/
+lib/
+lib64
+include/
+share/
+pyvenv.cfg
 
 # Python
 __pycache__/
