@@ -95,7 +95,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.VERSION }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@da05a4b9a6525837b484c4f662beab3bcdf7bbe5  # v2.3.2
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe  # v2.6.1
         with:
           generate_release_notes: true
           files: |
