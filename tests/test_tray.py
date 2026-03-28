@@ -52,7 +52,7 @@ class TestCommandWorker:
         assert received[0][0] == "Connect"
         assert isinstance(received[0][1], CommandResult)
 
-    @patch.object(TwingateClient, "account_switch")
+    @patch.object(TwingateClient, "exit_node_switch")
     def test_run_command_with_args(self, mock_switch: MagicMock) -> None:
         mock_switch.return_value = CommandResult(True, "", "", 0)
         client = TwingateClient()
@@ -60,9 +60,9 @@ class TestCommandWorker:
 
         received: list[tuple[str, object]] = []
         worker.finished.connect(lambda name, result: received.append((name, result)))
-        worker.run_command("Switch", "account_switch", ("acme",))
+        worker.run_command("Switch", "exit_node_switch", ("us-east-1",))
 
-        mock_switch.assert_called_once_with("acme")
+        mock_switch.assert_called_once_with("us-east-1")
         assert len(received) == 1
 
     def test_run_command_blocks_disallowed_method(self) -> None:
@@ -79,7 +79,7 @@ class TestCommandWorker:
         """Verify the allowlist includes every method used by tray actions."""
         expected = {
             "start", "stop", "connect", "disconnect", "auth",
-            "account_add", "account_switch", "account_logout",
+            "account_logout",
             "exit_node_start", "exit_node_stop", "exit_node_switch",
         }
         assert expected.issubset(_ALLOWED_METHODS)
@@ -127,12 +127,27 @@ class TestTrayActions:
         TwingateSystemTray._on_reauth(tray)
         tray._run_async.assert_called_once_with("Re-authenticate", "auth")
 
-    def test_on_account_add_dispatches_async(self) -> None:
-        """Verify _on_account_add dispatches with correct name and method."""
+    @patch("twingate_tray.tray._find_terminal", return_value=("xterm", ["-e"]))
+    @patch("twingate_tray.tray.subprocess.Popen")
+    def test_on_account_add_opens_terminal(
+        self, mock_popen: MagicMock, mock_find: MagicMock
+    ) -> None:
+        """Verify _on_account_add launches the interactive flow in a terminal."""
         tray = MagicMock(spec=TwingateSystemTray)
-        tray._run_async = MagicMock()
         TwingateSystemTray._on_account_add(tray)
-        tray._run_async.assert_called_once_with("Add account", "account_add")
+        mock_popen.assert_called_once_with(
+            ["xterm", "-e", "pkexec", "/usr/bin/twingate", "account", "add"]
+        )
+
+    @patch("twingate_tray.tray._find_terminal", return_value=None)
+    def test_on_account_add_warns_when_no_terminal(
+        self, mock_find: MagicMock
+    ) -> None:
+        """Verify _on_account_add shows a warning when no terminal is found."""
+        tray = MagicMock(spec=TwingateSystemTray)
+        tray._warn = MagicMock()
+        TwingateSystemTray._on_account_add(tray)
+        tray._warn.assert_called_once()
 
     def test_on_account_logout_dispatches_async(self) -> None:
         """Verify _on_account_logout dispatches with correct name and method."""
@@ -141,14 +156,18 @@ class TestTrayActions:
         TwingateSystemTray._on_account_logout(tray)
         tray._run_async.assert_called_once_with("Logout", "account_logout")
 
-    def test_switch_account_dispatches_with_name_arg(self) -> None:
-        """Verify _switch_account passes the account name as a positional arg tuple."""
+    @patch("twingate_tray.tray._find_terminal", return_value=("xterm", ["-e"]))
+    @patch("twingate_tray.tray.subprocess.Popen")
+    def test_switch_account_opens_terminal(
+        self, mock_popen: MagicMock, mock_find: MagicMock
+    ) -> None:
+        """Verify _switch_account launches the interactive flow in a terminal."""
         tray = MagicMock(spec=TwingateSystemTray)
-        tray._run_async = MagicMock()
-        TwingateSystemTray._switch_account(tray, "corp")
-        tray._run_async.assert_called_once_with(
-            "Switch account", "account_switch", ("corp",)
-        )
+        TwingateSystemTray._switch_account(tray, "user@example.com:acme")
+        mock_popen.assert_called_once_with([
+            "xterm", "-e", "pkexec", "/usr/bin/twingate",
+            "account", "switch", "user@example.com:acme",
+        ])
 
     def test_on_exit_node_start_dispatches_async(self) -> None:
         """Verify _on_exit_node_start dispatches with correct name and method."""

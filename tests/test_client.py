@@ -389,6 +389,42 @@ class TestParseAccounts:
         assert len(accounts) == 1
         assert accounts[0].name == "mycompany"
 
+    def test_real_cli_columnar_format(self, client: TwingateClient) -> None:
+        """Parse real CLI output with EMAIL, NETWORK, NETWORK URL columns."""
+        result = CommandResult(
+            success=True,
+            stdout=(
+                "EMAIL              NETWORK  NETWORK URL\n"
+                "user@example.com   acme     acme.twingate.com\n"
+            ),
+            stderr="",
+            returncode=0,
+        )
+        accounts = client._parse_accounts(result)
+        assert len(accounts) == 1
+        assert accounts[0].email == "user@example.com"
+        assert accounts[0].network == "acme"
+        assert accounts[0].switch_id == "user@example.com:acme"
+        assert "acme" in accounts[0].name
+        assert "user@example.com" in accounts[0].name
+
+    def test_columnar_format_email_header_is_skipped(self, client: TwingateClient) -> None:
+        """The EMAIL header line is skipped in columnar format."""
+        result = CommandResult(
+            success=True,
+            stdout=(
+                "EMAIL              NETWORK  NETWORK URL\n"
+                "a@b.com   net1     net1.twingate.com\n"
+                "c@d.com   net2     net2.twingate.com\n"
+            ),
+            stderr="",
+            returncode=0,
+        )
+        accounts = client._parse_accounts(result)
+        assert len(accounts) == 2
+        assert accounts[0].switch_id == "a@b.com:net1"
+        assert accounts[1].switch_id == "c@d.com:net2"
+
 
 # ------------------------------------------------------------------
 # Exit node parsing
@@ -455,6 +491,42 @@ class TestParseExitNodes:
         )
         nodes = client._parse_exit_nodes(result)
         assert len(nodes) == 2
+
+    def test_real_cli_output_with_emoji_and_columns(self, client: TwingateClient) -> None:
+        """Parse real CLI output with emoji prefix, multi-space columns, and status line."""
+        result = CommandResult(
+            success=True,
+            stdout=(
+                "Non-Resource traffic currently isn't being routed through Twingate\n"
+                "\n"
+                "EXIT NETWORK NAME                 TIME LEFT\n"
+                "\U0001f464 Seattle Exit Network - Vultr3     --\n"
+            ),
+            stderr="",
+            returncode=0,
+        )
+        nodes = client._parse_exit_nodes(result)
+        assert len(nodes) == 1
+        assert nodes[0].name == "Seattle Exit Network - Vultr3"
+        assert nodes[0].is_active is False
+
+    def test_status_description_lines_are_skipped(self, client: TwingateClient) -> None:
+        """Lines starting with 'Non-' or 'All ' are status descriptions, not nodes."""
+        result = CommandResult(
+            success=True,
+            stdout=(
+                "All traffic is being routed through Twingate\n"
+                "\n"
+                "EXIT NETWORK NAME                 TIME LEFT\n"
+                "✓ My Exit Node     5h\n"
+            ),
+            stderr="",
+            returncode=0,
+        )
+        nodes = client._parse_exit_nodes(result)
+        assert len(nodes) == 1
+        assert nodes[0].name == "My Exit Node"
+        assert nodes[0].is_active is True
 
 
 # ------------------------------------------------------------------

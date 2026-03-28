@@ -13,8 +13,28 @@ PKEXEC_BIN = "/usr/bin/pkexec"
 DEFAULT_TIMEOUT = 15  # seconds for read-only commands
 PRIVILEGED_TIMEOUT = 30  # seconds for state-changing commands
 
-# Pattern for validating CLI arguments (account names, node IDs, resource names)
-_SAFE_ARG_RE = re.compile(r"^[a-zA-Z0-9._@:/ -]+$")
+# Pattern for validating CLI arguments (account names, node IDs, resource names).
+# Allows Unicode word characters to support names like "Seattle Exit Network - Vultr".
+_SAFE_ARG_RE = re.compile(r"^[\w .@:/()\-]+$", re.UNICODE)
+
+
+def _clean_cli_name(line: str) -> str:
+    """Clean a name from CLI output by removing markers and emoji prefixes.
+
+    Handles output like: '👤 Seattle Exit Network - Vultr\\t--'
+    Returns: 'Seattle Exit Network - Vultr'
+    """
+    # Strip tab-separated trailing content (e.g. status columns)
+    name = line.split("\t")[0].strip()
+    # Remove active markers (checkmark, asterisk)
+    name = re.sub(r"[✓✔*]", "", name).strip()
+    # Remove leading bullet/dash markers
+    name = re.sub(r"^\s*[-•]\s*", "", name).strip()
+    # Remove leading emoji characters (non-ASCII, non-letter prefix)
+    name = re.sub(r"^[^\w\s]+\s*", "", name, flags=re.UNICODE).strip()
+    # Remove trailing decorators like '--' or '---'
+    name = re.sub(r"\s*-{2,}\s*$", "", name).strip()
+    return name
 
 
 class ConnectionState(enum.Enum):
@@ -62,6 +82,15 @@ class TwingateAccount:
 
     name: str
     is_active: bool = False
+    email: str = ""
+    network: str = ""
+
+    @property
+    def switch_id(self) -> str:
+        """Return the identifier for ``account switch`` (email:network)."""
+        if self.email and self.network:
+            return f"{self.email}:{self.network}"
+        return self.name
 
 
 @dataclass
@@ -306,7 +335,12 @@ class TwingateClient:
     def _parse_accounts(result: CommandResult) -> list[TwingateAccount]:
         """Parse ``twingate account list`` output.
 
-        Lines containing a check mark or asterisk indicate the active account.
+        Expected format (colors disabled)::
+
+            EMAIL              NETWORK  NETWORK URL
+            user@example.com   acme     acme.twingate.com
+
+        Also handles legacy single-column format with check/asterisk markers.
         """
         if not result.success or not result.stdout:
             return []
@@ -314,15 +348,31 @@ class TwingateClient:
         accounts: list[TwingateAccount] = []
         for line in result.stdout.splitlines():
             line = line.strip()
-            if not line or line.startswith("-") or line.lower().startswith("account"):
+            if not line or line.startswith("-"):
+                continue
+            # Skip header lines
+            if line.lower().startswith("email") or line.lower().startswith("account"):
                 continue
             is_active = bool(re.search(r"[✓✔*]", line))
-            # Remove marker characters to get the clean name
-            name = re.sub(r"[✓✔*]", "", line).strip()
-            # Also remove leading/trailing whitespace and common prefixes
-            name = re.sub(r"^\s*[-•]\s*", "", name).strip()
-            if name:
-                accounts.append(TwingateAccount(name=name, is_active=is_active))
+            # Split on 2+ whitespace to separate columns
+            parts = re.split(r"\s{2,}", line)
+            if len(parts) >= 2:
+                # Columnar format: EMAIL  NETWORK  [NETWORK URL]
+                email = _clean_cli_name(parts[0])
+                network = parts[1].strip()
+                # Display as "network (email)" for the menu label
+                display_name = f"{network} ({email})" if email else network
+                accounts.append(TwingateAccount(
+                    name=display_name,
+                    is_active=is_active,
+                    email=email,
+                    network=network,
+                ))
+            else:
+                # Single-column fallback
+                name = _clean_cli_name(line)
+                if name:
+                    accounts.append(TwingateAccount(name=name, is_active=is_active))
 
         return accounts
 
@@ -330,7 +380,14 @@ class TwingateClient:
     def _parse_exit_nodes(result: CommandResult) -> list[TwingateExitNode]:
         """Parse ``twingate exit-node list`` output.
 
-        Lines containing a check mark or asterisk indicate the active node.
+        Expected format (colors disabled)::
+
+            Non-Resource traffic currently isn't being routed through Twingate
+
+            EXIT NETWORK NAME                 TIME LEFT
+            👤 Seattle Exit Network           --
+
+        Lines containing a check mark, asterisk, or emoji indicate the active node.
         """
         if not result.success or not result.stdout:
             return []
@@ -338,11 +395,16 @@ class TwingateClient:
         nodes: list[TwingateExitNode] = []
         for line in result.stdout.splitlines():
             line = line.strip()
+            # Skip empty, separator, header, and status description lines
             if not line or line.startswith("-") or line.lower().startswith("exit"):
                 continue
-            is_active = bool(re.search(r"[✓✔*]", line))
-            name = re.sub(r"[✓✔*]", "", line).strip()
-            name = re.sub(r"^\s*[-•]\s*", "", name).strip()
+            if line.lower().startswith("non-") or line.lower().startswith("all "):
+                continue
+            # Split on 2+ whitespace to separate columns (name vs time-left)
+            parts = re.split(r"\s{2,}", line)
+            raw_name = parts[0].strip() if parts else line.strip()
+            is_active = bool(re.search(r"[✓✔*]", raw_name))
+            name = _clean_cli_name(raw_name)
             if name:
                 nodes.append(TwingateExitNode(name=name, is_active=is_active))
 

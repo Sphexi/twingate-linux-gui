@@ -4,7 +4,7 @@ Section: net
 Priority: optional
 Architecture: amd64
 Depends: twingate, policykit-1
-Maintainer: Ben <ben@example.com>
+Maintainer: Sphexi <admin@sphexi.com>
 Description: System tray application for the Twingate Linux CLI
  Provides a graphical system tray interface for managing Twingate
  VPN connections on Linux. Features include connect/disconnect,

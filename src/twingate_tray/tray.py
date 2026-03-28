@@ -3,6 +3,7 @@
 import html
 import logging
 import shutil
+import subprocess
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,25 @@ _STATE_LABELS: dict[ConnectionState, str] = {
 AUTOSTART_DIR = Path.home() / ".config" / "autostart"
 DESKTOP_FILE_NAME = "twingate-tray.desktop"
 
+# Terminal emulators to try, in preference order.
+# Each entry is (binary, args-to-run-a-command).
+_TERMINAL_EMULATORS: list[tuple[str, list[str]]] = [
+    ("x-terminal-emulator", ["-e"]),  # Debian/Ubuntu default
+    ("xfce4-terminal", ["-e"]),
+    ("gnome-terminal", ["--"]),
+    ("konsole", ["-e"]),
+    ("mate-terminal", ["-e"]),
+    ("xterm", ["-e"]),
+]
+
+
+def _find_terminal() -> tuple[str, list[str]] | None:
+    """Find an available terminal emulator on the system."""
+    for binary, args in _TERMINAL_EMULATORS:
+        if shutil.which(binary):
+            return binary, args
+    return None
+
 
 def _add_action(menu: QMenu, label: str) -> QAction:
     """Add an action to a menu, raising on failure."""
@@ -65,8 +85,8 @@ def _add_submenu(menu: QMenu, label: str) -> QMenu:
 
 
 _ALLOWED_METHODS = frozenset({
-    "start", "stop", "connect", "disconnect", "auth", "account_add",
-    "account_switch", "account_logout", "exit_node_start", "exit_node_stop",
+    "start", "stop", "connect", "disconnect", "auth",
+    "account_logout", "exit_node_start", "exit_node_stop",
     "exit_node_switch", "exit_node_list", "desktop_start", "version",
 })
 
@@ -87,9 +107,16 @@ class CommandWorker(QObject):
         if method_name not in _ALLOWED_METHODS:
             logger.error("Blocked disallowed method: %s", method_name)
             return
-        method = getattr(self._client, method_name)
-        result = method(*args)
-        self.finished.emit(name, result)
+        logger.info("CommandWorker executing: %s.%s(%s)", name, method_name, args)
+        try:
+            method = getattr(self._client, method_name)
+            result = method(*args)
+            logger.info("CommandWorker result: %s -> %s", name, result)
+            self.finished.emit(name, result)
+        except Exception:
+            logger.exception("CommandWorker exception in %s", name)
+            err = CommandResult(False, "", "internal error", -1)
+            self.finished.emit(name, err)
 
 
 class TwingateSystemTray(QSystemTrayIcon):
@@ -149,6 +176,7 @@ class TwingateSystemTray(QSystemTrayIcon):
         args: tuple[Any, ...] = (),
     ) -> None:
         """Dispatch a client command to the background thread."""
+        logger.info("Dispatching command: %s (method=%s, args=%s)", name, method_name, args)
         QTimer.singleShot(
             0,
             partial(self._cmd_worker.run_command, name, method_name, args),
@@ -156,6 +184,7 @@ class TwingateSystemTray(QSystemTrayIcon):
 
     def _on_command_finished(self, name: str, result: object) -> None:
         """Handle command completion on the main thread."""
+        logger.info("Command finished: %s -> %s", name, result)
         if isinstance(result, CommandResult) and not result.success:
             # Truncate stderr to prevent excessively long notifications
             stderr = result.stderr[:MAX_NOTIFICATION_LEN]
@@ -315,7 +344,7 @@ class TwingateSystemTray(QSystemTrayIcon):
                 act.setChecked(acct.is_active)
                 if not acct.is_active:
                     act.triggered.connect(
-                        lambda _c, a=acct.name: self._switch_account(a)
+                        lambda _c, a=acct.switch_id: self._switch_account(a)
                     )
 
         self._accounts_menu.addSeparator()
@@ -415,16 +444,57 @@ class TwingateSystemTray(QSystemTrayIcon):
     # ------------------------------------------------------------------
 
     def _on_account_add(self) -> None:
-        """Trigger account add via pkexec."""
-        self._run_async("Add account", "account_add")
+        """Open a terminal to run the interactive account add flow.
+
+        ``twingate account add`` is interactive (prompts for network name,
+        opens browser for auth, restarts the service), so it must run in a
+        visible terminal rather than a background subprocess.
+        """
+        terminal = _find_terminal()
+        if terminal is None:
+            self._warn(
+                "No terminal emulator found. Run manually:\n"
+                "pkexec /usr/bin/twingate account add"
+            )
+            return
+        binary, args = terminal
+        cmd = [binary, *args, "pkexec", "/usr/bin/twingate", "account", "add"]
+        try:
+            subprocess.Popen(cmd)
+        except OSError as exc:
+            logger.error("Failed to open terminal for account add: %s", exc)
+            self._warn(
+                "Failed to open terminal. Run manually:\n"
+                "pkexec /usr/bin/twingate account add"
+            )
 
     def _on_account_logout(self) -> None:
         """Log out of current account."""
         self._run_async("Logout", "account_logout")
 
-    def _switch_account(self, name: str) -> None:
-        """Switch to a different account."""
-        self._run_async("Switch account", "account_switch", (name,))
+    def _switch_account(self, switch_id: str) -> None:
+        """Open a terminal to run the interactive account switch flow.
+
+        ``twingate account switch`` prompts for confirmation and restarts
+        the service, so it must run in a visible terminal.
+        """
+        terminal = _find_terminal()
+        if terminal is None:
+            self._warn(
+                "No terminal emulator found. Run manually:\n"
+                f"pkexec /usr/bin/twingate account switch {switch_id}"
+            )
+            return
+        binary, args = terminal
+        cmd = [binary, *args, "pkexec", "/usr/bin/twingate", "account", "switch", switch_id]
+        try:
+            subprocess.Popen(cmd)
+        except OSError as exc:
+            logger.error("Failed to open terminal for account switch: %s", exc)
+            self._warn(
+                "Failed to open terminal. Run manually:\n"
+                f"pkexec /usr/bin/twingate account switch {switch_id}"
+            )
 
     # ------------------------------------------------------------------
     # Exit node actions
