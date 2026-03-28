@@ -1,0 +1,40 @@
+# Virtual environment
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PyInstaller
+*.spec.build/
+*.manifest
+
+# Claude Code
+.claude/
+CLAUDE.md
+docs/TECHNICAL_PLAN.md
+docs/SESSIONS.md
+
+# Environment / secrets
+.env
+.env.*

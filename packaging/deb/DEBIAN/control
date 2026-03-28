@@ -1,0 +1,13 @@
+Package: twingate-tray
+Version: {{VERSION}}
+Section: net
+Priority: optional
+Architecture: amd64
+Depends: twingate, policykit-1
+Maintainer: Ben <ben@example.com>
+Description: System tray application for the Twingate Linux CLI
+ Provides a graphical system tray interface for managing Twingate
+ VPN connections on Linux. Features include connect/disconnect,
+ resource browsing, account management, exit node routing, and
+ desktop notifications.
+Homepage: https://github.com/benyanke/twingate-linux-gui
