@@ -55,7 +55,16 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          RAW="${GITHUB_REF_NAME#v}"
+          # Strip any leading dots or whitespace
+          VERSION="${RAW#.}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Tag '${GITHUB_REF_NAME}' does not produce a valid semver version: '${VERSION}'"
+            exit 1
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Extracted version: ${VERSION}"
 
       - name: Build PyInstaller binary
         run: pyinstaller packaging/twingate-tray.spec
