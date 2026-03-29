@@ -106,7 +106,8 @@ class TwingateSystemTray(QSystemTrayIcon):
         self._config = config_manager
         self._icons = icon_manager
 
-        # Submenu references (set in _build_menu)
+        # Menu references (prevent Python GC from destroying Qt objects)
+        self._menu: QMenu | None = None
         self._resources_menu: QMenu | None = None
         self._accounts_menu: QMenu | None = None
         self._exit_nodes_menu: QMenu | None = None
@@ -237,11 +238,12 @@ class TwingateSystemTray(QSystemTrayIcon):
         quit_act.triggered.connect(self._on_quit)
 
         self.setContextMenu(menu)
+        self._menu = menu  # prevent Python GC from destroying the menu
         actions = [a.text() for a in menu.actions() if not a.isSeparator()]
         logger.info("_build_menu complete: actions=%s", actions)
 
-        # Clean up old menu to prevent memory leak
-        if old_menu is not None:
+        # Clean up old menu
+        if old_menu is not None and old_menu is not menu:
             old_menu.deleteLater()
 
     def _build_settings_menu(self, menu: QMenu) -> None:
