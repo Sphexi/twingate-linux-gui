@@ -141,7 +141,6 @@ class TwingateSystemTray(QSystemTrayIcon):
             logger.error("Blocked disallowed method: %s", method_name)
             return
         logger.info("Running command: %s (method=%s, args=%s)", name, method_name, args)
-        self._disable_menu_actions()
 
         try:
             method = getattr(self._client, method_name)
@@ -159,19 +158,6 @@ class TwingateSystemTray(QSystemTrayIcon):
         self._build_menu()
         logger.info("Menu rebuilt, forcing poll")
         self._poller.force_poll()
-
-    def _disable_menu_actions(self) -> None:
-        """Grey out all menu actions while a command is in flight."""
-        menu = self.contextMenu()
-        if menu is None:
-            return
-        for action in menu.actions():
-            if action.isSeparator():
-                continue
-            # Keep status line (already disabled) and Quit always enabled
-            if action.text() == "Quit":
-                continue
-            action.setEnabled(False)
 
     # ------------------------------------------------------------------
     # Menu construction
