@@ -141,7 +141,7 @@ class TwingateSystemTray(QSystemTrayIcon):
         if method_name not in _ALLOWED_METHODS:
             logger.error("Blocked disallowed method: %s", method_name)
             return
-        logger.info("Running command: %s (method=%s, args=%s)", name, method_name, args)
+        logger.info("Running command: %s", name)
 
         try:
             method = getattr(self._client, method_name)
@@ -150,12 +150,11 @@ class TwingateSystemTray(QSystemTrayIcon):
             logger.exception("Command exception in %s", name)
             result = CommandResult(False, "", "internal error", -1)
 
-        logger.info("Command result: %s -> %s", name, result)
         if isinstance(result, CommandResult) and not result.success:
+            logger.warning("Command failed: %s — %s", name, result.stderr)
             stderr = result.stderr[:MAX_NOTIFICATION_LEN]
             self._warn(f"{name} failed: {stderr}")
 
-        logger.info("Rebuilding menu after command: %s", name)
         self._build_menu()
         logger.info("Menu rebuilt, forcing poll")
         self._poller.force_poll()
@@ -166,17 +165,14 @@ class TwingateSystemTray(QSystemTrayIcon):
 
     def _build_menu(self) -> None:
         """Rebuild the context menu by clearing and repopulating in place."""
-        logger.info("_build_menu called (state=%s)", self._current_status.state)
         state = self._current_status.state
 
         # Reuse existing menu or create one on first call
         if self._menu is None:
             self._menu = QMenu()
             self.setContextMenu(self._menu)
-            logger.info("_build_menu: created new QMenu (id=%s)", id(self._menu))
         else:
             self._menu.clear()
-            logger.info("_build_menu: cleared existing QMenu (id=%s)", id(self._menu))
 
         menu = self._menu
 
@@ -192,15 +188,12 @@ class TwingateSystemTray(QSystemTrayIcon):
         if state in (ConnectionState.OFFLINE, ConnectionState.UNKNOWN):
             act = _add_action(menu, "Connect")
             act.triggered.connect(self._on_connect)
-            logger.info("_build_menu: wired Connect action")
         elif state == ConnectionState.ONLINE:
             act = _add_action(menu, "Disconnect")
             act.triggered.connect(self._on_stop)
-            logger.info("_build_menu: wired Disconnect action")
         elif state == ConnectionState.CONNECTING:
             act = _add_action(menu, "Cancel (Disconnect)")
             act.triggered.connect(self._on_stop)
-            logger.info("_build_menu: wired Cancel action")
 
         menu.addSeparator()
 
@@ -236,8 +229,6 @@ class TwingateSystemTray(QSystemTrayIcon):
         quit_act = _add_action(menu, "Quit")
         quit_act.triggered.connect(self._on_quit)
 
-        actions = [a.text() for a in menu.actions() if not a.isSeparator()]
-        logger.info("_build_menu complete: actions=%s (menu id=%s)", actions, id(menu))
 
     def _build_settings_menu(self, menu: QMenu) -> None:
         """Build the Settings submenu."""
@@ -274,12 +265,10 @@ class TwingateSystemTray(QSystemTrayIcon):
         if self._resources_menu is None:
             return
         self._resources_menu.clear()
-        logger.info("Populating resources menu")
 
         resources = self._client.resources(
             include_hidden=self._config.config.show_hidden_resources
         )
-        logger.info("Resources fetched: %d items", len(resources))
         if not resources:
             act = _add_action(self._resources_menu, "No resources available")
             act.setEnabled(False)
@@ -312,10 +301,8 @@ class TwingateSystemTray(QSystemTrayIcon):
         if self._accounts_menu is None:
             return
         self._accounts_menu.clear()
-        logger.info("Populating accounts menu")
 
         accounts = self._client.account_list()
-        logger.info("Accounts fetched: %d items", len(accounts))
         if not accounts:
             act = _add_action(self._accounts_menu, "No accounts configured")
             act.setEnabled(False)
@@ -340,13 +327,8 @@ class TwingateSystemTray(QSystemTrayIcon):
         if self._exit_nodes_menu is None:
             return
         self._exit_nodes_menu.clear()
-        logger.info("Populating exit nodes menu")
 
         nodes = self._client.exit_node_list()
-        logger.info("Exit nodes fetched: %d items", len(nodes))
-        for node in nodes:
-            logger.info("  node: name=%r cli=%r active=%s",
-                        node.name, node.cli_name, node.is_active)
         if not nodes:
             act = _add_action(self._exit_nodes_menu, "No exit nodes available")
             act.setEnabled(False)
@@ -387,7 +369,7 @@ class TwingateSystemTray(QSystemTrayIcon):
 
         # Only rebuild the full menu on state changes
         if state_changed:
-            logger.info("State changed: %s -> %s, rebuilding menu", old_state, status.state)
+            logger.info("State changed: %s -> %s", old_state, status.state)
             self._build_menu()
 
             # Suppress notification on first poll (app startup)
@@ -413,17 +395,14 @@ class TwingateSystemTray(QSystemTrayIcon):
 
     def _on_connect(self) -> None:
         """Handle Connect / Start."""
-        logger.info("Action triggered: Connect")
         self._run_command("Connect", "start")
 
     def _on_stop(self) -> None:
         """Handle full Disconnect (stop)."""
-        logger.info("Action triggered: Disconnect")
         self._run_command("Disconnect", "stop")
 
     def _on_resource_auth(self, resource_name: str) -> None:
         """Trigger browser-based re-authentication for a specific resource."""
-        logger.info("Action triggered: Re-authenticate resource %r", resource_name)
         self._run_command("Re-authenticate", "auth", (resource_name,))
 
     # ------------------------------------------------------------------
@@ -489,17 +468,14 @@ class TwingateSystemTray(QSystemTrayIcon):
 
     def _on_exit_node_stop(self) -> None:
         """Disable exit node routing."""
-        logger.info("Action triggered: Disable exit node routing")
         self._run_command("Disable routing", "exit_node_stop")
 
     def _start_exit_node(self, name: str) -> None:
         """Start routing through a specific exit node."""
-        logger.info("Action triggered: Start exit node %r", name)
         self._run_command("Start exit node", "exit_node_start", (name,))
 
     def _switch_exit_node(self, name: str) -> None:
         """Switch to a different exit node."""
-        logger.info("Action triggered: Switch exit node %r", name)
         self._run_command("Switch exit node", "exit_node_switch", (name,))
 
     # ------------------------------------------------------------------

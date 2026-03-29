@@ -138,7 +138,6 @@ class TwingateClient:
     ) -> CommandResult:
         """Run a twingate command and return the result."""
         cmd = [TWINGATE_BIN, *args, "-d"]
-        logger.info("CLI: %s (privileged=%s, timeout=%s)", " ".join(cmd), privileged, timeout)
         if privileged:
             cmd = [PKEXEC_BIN, *cmd]
         if timeout is None:

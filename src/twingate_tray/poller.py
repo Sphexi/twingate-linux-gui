@@ -65,7 +65,6 @@ class StatusPoller(QObject):
 
     def _poll(self) -> None:
         """Run the status check and emit the result."""
-        logger.info("Poll starting (timer active=%s)", self._timer.isActive())
         try:
             status = self._client.status()
         except Exception:
@@ -81,4 +80,3 @@ class StatusPoller(QObject):
             )
             self._last_state = status.state
         self.status_changed.emit(status)
-        logger.info("Poll complete (timer active=%s)", self._timer.isActive())

@@ -66,6 +66,16 @@ jobs:
           echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Extracted version: ${VERSION}"
 
+      - name: Stamp version from tag
+        run: |
+          sed -i "s/__version__ = .*/__version__ = \"${VERSION}\"/" src/twingate_tray/__init__.py
+          sed -i "s/^version = .*/version = \"${VERSION}\"/" pyproject.toml
+          echo "Stamped version ${VERSION} into source files"
+          grep __version__ src/twingate_tray/__init__.py
+          grep "^version" pyproject.toml
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+
       - name: Build PyInstaller binary
         run: pyinstaller packaging/twingate-tray.spec
         env:
