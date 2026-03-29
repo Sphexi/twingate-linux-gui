@@ -3,7 +3,7 @@
 A system tray application for the Twingate Linux CLI, providing a graphical interface for
 connection management, resource visibility, account switching, and exit node routing.
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![Python](https://img.shields.io/badge/python-3.12%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-alpha-orange)
