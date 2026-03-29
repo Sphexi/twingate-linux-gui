@@ -7,7 +7,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QApplication,
@@ -90,42 +89,6 @@ _ALLOWED_METHODS = frozenset({
 })
 
 
-class CommandWorker(QObject):
-    """Runs blocking TwingateClient commands off the main thread."""
-
-    finished = pyqtSignal(str, object)  # (command_name, result)
-    trigger = pyqtSignal(str, str, tuple)  # (name, method_name, args)
-
-    def __init__(self, client: TwingateClient) -> None:
-        super().__init__()
-        self._client = client
-        self.trigger.connect(self._execute)
-
-    def run_command(
-        self, name: str, method_name: str, args: tuple[Any, ...] = ()
-    ) -> None:
-        """Queue a command for execution on the worker thread."""
-        self.trigger.emit(name, method_name, args)
-
-    def _execute(
-        self, name: str, method_name: str, args: tuple[Any, ...]
-    ) -> None:
-        """Execute a client method and emit the result (runs on worker thread)."""
-        if method_name not in _ALLOWED_METHODS:
-            logger.error("Blocked disallowed method: %s", method_name)
-            return
-        logger.info("CommandWorker executing: %s.%s(%s)", name, method_name, args)
-        try:
-            method = getattr(self._client, method_name)
-            result = method(*args)
-            logger.info("CommandWorker result: %s -> %s", name, result)
-            self.finished.emit(name, result)
-        except Exception:
-            logger.exception("CommandWorker exception in %s", name)
-            err = CommandResult(False, "", "internal error", -1)
-            self.finished.emit(name, err)
-
-
 class TwingateSystemTray(QSystemTrayIcon):
     """System tray icon with a dynamic context menu for Twingate management."""
 
@@ -152,13 +115,6 @@ class TwingateSystemTray(QSystemTrayIcon):
         self._current_status = TwingateStatus(state=ConnectionState.UNKNOWN)
         self._is_first_poll = True
 
-        # Background command thread
-        self._cmd_worker = CommandWorker(client)
-        self._cmd_thread = QThread()
-        self._cmd_worker.moveToThread(self._cmd_thread)
-        self._cmd_worker.finished.connect(self._on_command_finished)
-        self._cmd_thread.start()
-
         # Set initial icon
         self.setIcon(self._icons.get_icon(ConnectionState.UNKNOWN))
         self.setToolTip("twingate-tray \u2014 Unknown")
@@ -168,24 +124,39 @@ class TwingateSystemTray(QSystemTrayIcon):
         self._poller.status_changed.connect(self._on_status_changed)
 
     def cleanup(self) -> None:
-        """Stop the background command thread."""
-        self._cmd_thread.quit()
-        self._cmd_thread.wait(5000)
+        """No-op — no background threads to clean up."""
 
     # ------------------------------------------------------------------
     # Async command dispatch
     # ------------------------------------------------------------------
 
-    def _run_async(
+    def _run_command(
         self,
         name: str,
         method_name: str,
         args: tuple[Any, ...] = (),
     ) -> None:
-        """Dispatch a client command to the background thread."""
-        logger.info("Dispatching command: %s (method=%s, args=%s)", name, method_name, args)
+        """Run a client command, update the menu, and trigger a poll."""
+        if method_name not in _ALLOWED_METHODS:
+            logger.error("Blocked disallowed method: %s", method_name)
+            return
+        logger.info("Running command: %s (method=%s, args=%s)", name, method_name, args)
         self._disable_menu_actions()
-        self._cmd_worker.run_command(name, method_name, args)
+
+        try:
+            method = getattr(self._client, method_name)
+            result = method(*args)
+        except Exception:
+            logger.exception("Command exception in %s", name)
+            result = CommandResult(False, "", "internal error", -1)
+
+        logger.info("Command result: %s -> %s", name, result)
+        if isinstance(result, CommandResult) and not result.success:
+            stderr = result.stderr[:MAX_NOTIFICATION_LEN]
+            self._warn(f"{name} failed: {stderr}")
+
+        self._build_menu()
+        self._poller.force_poll()
 
     def _disable_menu_actions(self) -> None:
         """Grey out all menu actions while a command is in flight."""
@@ -199,32 +170,6 @@ class TwingateSystemTray(QSystemTrayIcon):
             if action.text() == "Quit":
                 continue
             action.setEnabled(False)
-
-    def _enable_menu_actions(self) -> None:
-        """Re-enable all menu actions (after a command completes or poll arrives)."""
-        menu = self.contextMenu()
-        if menu is None:
-            return
-        for action in menu.actions():
-            if action.isSeparator():
-                continue
-            action.setEnabled(True)
-        # Status line stays disabled (not clickable)
-        first = menu.actions()[0] if menu.actions() else None
-        if first and not first.isSeparator():
-            first.setEnabled(False)
-
-    def _on_command_finished(self, name: str, result: object) -> None:
-        """Handle command completion on the main thread."""
-        logger.info("Command finished: %s -> %s", name, result)
-        if isinstance(result, CommandResult) and not result.success:
-            # Truncate stderr to prevent excessively long notifications
-            stderr = result.stderr[:MAX_NOTIFICATION_LEN]
-            self._warn(f"{name} failed: {stderr}")
-        # Defer menu rebuild to next event loop iteration (ensures we're
-        # on the main thread and not inside a cross-thread signal handler).
-        QTimer.singleShot(0, self._build_menu)
-        self._poller.force_poll()
 
     # ------------------------------------------------------------------
     # Menu construction
@@ -429,9 +374,6 @@ class TwingateSystemTray(QSystemTrayIcon):
         label = _STATE_LABELS.get(status.state, "Unknown")
         self.setToolTip(f"twingate-tray \u2014 {label}")
 
-        # Re-enable any greyed-out actions
-        self._enable_menu_actions()
-
         # Only rebuild the full menu on state changes
         if state_changed:
             logger.info("State changed: %s -> %s, rebuilding menu", old_state, status.state)
@@ -455,28 +397,28 @@ class TwingateSystemTray(QSystemTrayIcon):
         )
 
     # ------------------------------------------------------------------
-    # Connection actions (all async via CommandWorker)
+    # Connection actions
     # ------------------------------------------------------------------
 
     def _on_connect(self) -> None:
         """Handle Connect / Start."""
-        self._run_async("Connect", "start")
+        self._run_command("Connect", "start")
 
     def _on_stop(self) -> None:
         """Handle full Disconnect (stop)."""
-        self._run_async("Disconnect", "stop")
+        self._run_command("Disconnect", "stop")
 
     def _on_disconnect(self) -> None:
         """Handle Pause (soft disconnect)."""
-        self._run_async("Pause", "disconnect")
+        self._run_command("Pause", "disconnect")
 
     def _on_resume(self) -> None:
         """Handle Resume from paused state."""
-        self._run_async("Resume", "connect")
+        self._run_command("Resume", "connect")
 
     def _on_reauth(self) -> None:
         """Open browser for re-authentication."""
-        self._run_async("Re-authenticate", "auth")
+        self._run_command("Re-authenticate", "auth")
 
     # ------------------------------------------------------------------
     # Account actions
@@ -509,7 +451,7 @@ class TwingateSystemTray(QSystemTrayIcon):
 
     def _on_account_logout(self) -> None:
         """Log out of current account."""
-        self._run_async("Logout", "account_logout")
+        self._run_command("Logout", "account_logout")
 
     def _switch_account(self, switch_id: str) -> None:
         """Open a terminal to run the interactive account switch flow.
@@ -541,15 +483,15 @@ class TwingateSystemTray(QSystemTrayIcon):
 
     def _on_exit_node_start(self) -> None:
         """Enable exit node routing."""
-        self._run_async("Enable routing", "exit_node_start")
+        self._run_command("Enable routing", "exit_node_start")
 
     def _on_exit_node_stop(self) -> None:
         """Disable exit node routing."""
-        self._run_async("Disable routing", "exit_node_stop")
+        self._run_command("Disable routing", "exit_node_stop")
 
     def _switch_exit_node(self, name: str) -> None:
         """Switch to a different exit node."""
-        self._run_async("Switch exit node", "exit_node_switch", (name,))
+        self._run_command("Switch exit node", "exit_node_switch", (name,))
 
     # ------------------------------------------------------------------
     # Settings actions
