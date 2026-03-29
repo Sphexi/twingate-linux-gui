@@ -414,12 +414,20 @@ class TwingateClient:
 
         Expected format (colors disabled)::
 
+            Routing all traffic through Twingate for 11 hours
+
+            EXIT NETWORK NAME                 TIME LEFT
+            👤 Seattle Exit Network - Vultr3  11 hours 58 minutes
+
+        When inactive::
+
             Non-Resource traffic currently isn't being routed through Twingate
 
             EXIT NETWORK NAME                 TIME LEFT
-            👤 Seattle Exit Network           --
+            👤 Seattle Exit Network - Vultr3  --
 
-        Lines containing a check mark, asterisk, or emoji indicate the active node.
+        Active is determined by TIME LEFT column: ``--`` means inactive,
+        any other value means active.
         """
         if not result.success or not result.stdout:
             return []
@@ -427,28 +435,33 @@ class TwingateClient:
         nodes: list[TwingateExitNode] = []
         for line in result.stdout.splitlines():
             line = line.strip()
-            # Skip empty, separator, header, and status description lines
-            if not line or line.startswith("-") or line.lower().startswith("exit"):
+            # Skip empty, separator, and header lines
+            if not line or line.lower().startswith("exit"):
                 continue
-            # Skip status description lines (various formats)
+            # Skip status description lines
             lower = line.lower()
             if any(lower.startswith(p) for p in (
                 "non-", "all ", "routing ", "failed ", "no exit",
+                "stopping", "starting",
             )):
                 continue
-            # Split on tabs or 2+ spaces to separate columns (name vs time-left)
+            # Skip separator lines (but not lines starting with emoji)
+            if re.match(r"^-+$", line):
+                continue
+            # Split on tabs or 2+ spaces to separate columns
             parts = re.split(r"\t|\s{2,}", line)
-            raw_name = parts[0].strip() if parts else line.strip()
-            is_active = bool(re.search(r"[✓✔*]", raw_name))
-            # Clean name for display, but preserve raw name for CLI commands.
-            # The CLI expects the full name including emoji prefix.
+            parts = [p.strip() for p in parts if p.strip()]
+            if not parts:
+                continue
+            raw_name = parts[0]
+            # Active = TIME LEFT column is not "--"
+            time_left = parts[1] if len(parts) >= 2 else "--"
+            is_active = time_left != "--"
+            # Clean name for display, preserve raw for CLI
             display_name = _clean_cli_name(raw_name)
-            # For cli_name: strip only active markers, keep emoji
-            cli_name = re.sub(r"[✓✔*]", "", raw_name).strip()
-            cli_name = re.sub(r"^\s*[-•]\s*", "", cli_name).strip()
             if display_name:
                 nodes.append(TwingateExitNode(
-                    name=display_name, is_active=is_active, cli_name=cli_name,
+                    name=display_name, is_active=is_active, cli_name=raw_name,
                 ))
 
         return nodes

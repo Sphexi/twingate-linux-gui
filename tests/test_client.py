@@ -413,95 +413,89 @@ class TestParseExitNodes:
         result = CommandResult(success=True, stdout="", stderr="", returncode=0)
         assert client._parse_exit_nodes(result) == []
 
-    def test_with_active_node(self, client: TwingateClient) -> None:
-        result = CommandResult(
-            success=True,
-            stdout="✓ us-east-1\neu-west-1\nap-south-1",
-            stderr="",
-            returncode=0,
-        )
-        nodes = client._parse_exit_nodes(result)
-        assert len(nodes) == 3
-        assert nodes[0].is_active is True
-        assert nodes[0].name == "us-east-1"
-        assert nodes[1].is_active is False
-
     def test_failure_result_returns_empty_list(self, client: TwingateClient) -> None:
-        """A failed CommandResult always returns an empty list."""
         result = CommandResult(success=False, stdout="some output", stderr="err", returncode=1)
         assert client._parse_exit_nodes(result) == []
 
-    def test_active_with_asterisk_marker(self, client: TwingateClient) -> None:
-        """An asterisk (*) is recognised as the active-node marker."""
-        result = CommandResult(
-            success=True,
-            stdout="* us-west-2\neu-central-1",
-            stderr="",
-            returncode=0,
-        )
-        nodes = client._parse_exit_nodes(result)
-        assert nodes[0].is_active is True
-        assert nodes[0].name == "us-west-2"
-        assert nodes[1].is_active is False
-
-    def test_header_like_lines_are_skipped(self, client: TwingateClient) -> None:
-        """Lines beginning with 'exit' or '---' are treated as headers and ignored."""
-        result = CommandResult(
-            success=True,
-            stdout="Exit Node\n---\nus-east-1",
-            stderr="",
-            returncode=0,
-        )
-        nodes = client._parse_exit_nodes(result)
-        assert len(nodes) == 1
-        assert nodes[0].name == "us-east-1"
-
-    def test_whitespace_only_lines_are_skipped(self, client: TwingateClient) -> None:
-        """Blank / whitespace-only lines do not produce node entries."""
-        result = CommandResult(
-            success=True,
-            stdout="us-east-1\n   \neu-west-1",
-            stderr="",
-            returncode=0,
-        )
-        nodes = client._parse_exit_nodes(result)
-        assert len(nodes) == 2
-
-    def test_real_cli_output_with_emoji_and_columns(self, client: TwingateClient) -> None:
-        """Parse real CLI output with emoji prefix, multi-space columns, and status line."""
+    def test_inactive_node_with_dashes(self, client: TwingateClient) -> None:
+        """TIME LEFT of '--' means the node is inactive."""
         result = CommandResult(
             success=True,
             stdout=(
                 "Non-Resource traffic currently isn't being routed through Twingate\n"
                 "\n"
                 "EXIT NETWORK NAME                 TIME LEFT\n"
-                "\U0001f464 Seattle Exit Network - Vultr3     --\n"
+                "\U0001f464 My Exit Node     --\n"
             ),
-            stderr="",
-            returncode=0,
+            stderr="", returncode=0,
         )
         nodes = client._parse_exit_nodes(result)
         assert len(nodes) == 1
-        assert nodes[0].name == "Seattle Exit Network - Vultr3"
+        assert nodes[0].name == "My Exit Node"
         assert nodes[0].is_active is False
 
-    def test_status_description_lines_are_skipped(self, client: TwingateClient) -> None:
-        """Lines starting with 'Non-' or 'All ' are status descriptions, not nodes."""
+    def test_active_node_with_time_left(self, client: TwingateClient) -> None:
+        """TIME LEFT with a real duration means the node is active."""
         result = CommandResult(
             success=True,
             stdout=(
-                "All traffic is being routed through Twingate\n"
+                "Routing all traffic through Twingate for 11 hours\n"
                 "\n"
                 "EXIT NETWORK NAME                 TIME LEFT\n"
-                "✓ My Exit Node     5h\n"
+                "\U0001f464 My Exit Node     11 hours 58 minutes\n"
             ),
-            stderr="",
-            returncode=0,
+            stderr="", returncode=0,
         )
         nodes = client._parse_exit_nodes(result)
         assert len(nodes) == 1
         assert nodes[0].name == "My Exit Node"
         assert nodes[0].is_active is True
+
+    def test_cli_name_preserves_emoji(self, client: TwingateClient) -> None:
+        """cli_name keeps the emoji prefix for CLI commands."""
+        result = CommandResult(
+            success=True,
+            stdout=(
+                "EXIT NETWORK NAME                 TIME LEFT\n"
+                "\U0001f464 My Exit Node     --\n"
+            ),
+            stderr="", returncode=0,
+        )
+        nodes = client._parse_exit_nodes(result)
+        assert "\U0001f464" in nodes[0].cli_name
+
+    def test_status_description_lines_are_skipped(self, client: TwingateClient) -> None:
+        """Status description lines are not parsed as nodes."""
+        result = CommandResult(
+            success=True,
+            stdout=(
+                "Routing all traffic through Twingate for 6 hours\n"
+                "\n"
+                "EXIT NETWORK NAME                 TIME LEFT\n"
+                "\U0001f464 Node A     5h 30m\n"
+                "\U0001f464 Node B     --\n"
+            ),
+            stderr="", returncode=0,
+        )
+        nodes = client._parse_exit_nodes(result)
+        assert len(nodes) == 2
+        assert nodes[0].name == "Node A"
+        assert nodes[0].is_active is True
+        assert nodes[1].name == "Node B"
+        assert nodes[1].is_active is False
+
+    def test_header_and_separator_lines_skipped(self, client: TwingateClient) -> None:
+        result = CommandResult(
+            success=True,
+            stdout=(
+                "EXIT NETWORK NAME                 TIME LEFT\n"
+                "------\n"
+                "\U0001f464 My Node     --\n"
+            ),
+            stderr="", returncode=0,
+        )
+        nodes = client._parse_exit_nodes(result)
+        assert len(nodes) == 1
 
 
 # ------------------------------------------------------------------
