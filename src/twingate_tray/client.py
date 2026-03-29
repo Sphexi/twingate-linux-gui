@@ -411,7 +411,11 @@ class TwingateClient:
             # Skip empty, separator, header, and status description lines
             if not line or line.startswith("-") or line.lower().startswith("exit"):
                 continue
-            if line.lower().startswith("non-") or line.lower().startswith("all "):
+            # Skip status description lines (various formats)
+            lower = line.lower()
+            if any(lower.startswith(p) for p in (
+                "non-", "all ", "routing ", "failed ", "no exit",
+            )):
                 continue
             # Split on tabs or 2+ spaces to separate columns (name vs time-left)
             parts = re.split(r"\t|\s{2,}", line)

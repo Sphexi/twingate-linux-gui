@@ -165,11 +165,20 @@ class TwingateSystemTray(QSystemTrayIcon):
     # ------------------------------------------------------------------
 
     def _build_menu(self) -> None:
-        """Rebuild the entire context menu based on current state."""
+        """Rebuild the context menu by clearing and repopulating in place."""
         logger.info("_build_menu called (state=%s)", self._current_status.state)
-        old_menu = self.contextMenu()
-        menu = QMenu()
         state = self._current_status.state
+
+        # Reuse existing menu or create one on first call
+        if self._menu is None:
+            self._menu = QMenu()
+            self.setContextMenu(self._menu)
+            logger.info("_build_menu: created new QMenu (id=%s)", id(self._menu))
+        else:
+            self._menu.clear()
+            logger.info("_build_menu: cleared existing QMenu (id=%s)", id(self._menu))
+
+        menu = self._menu
 
         # --- Status line ---
         status_label = _STATE_LABELS.get(state, "Unknown")
@@ -183,19 +192,23 @@ class TwingateSystemTray(QSystemTrayIcon):
         if state in (ConnectionState.OFFLINE, ConnectionState.UNKNOWN):
             act = _add_action(menu, "Connect")
             act.triggered.connect(self._on_connect)
+            logger.info("_build_menu: wired Connect action")
         elif state == ConnectionState.ONLINE:
             act = _add_action(menu, "Disconnect")
             act.triggered.connect(self._on_stop)
             act2 = _add_action(menu, "Pause")
             act2.triggered.connect(self._on_disconnect)
+            logger.info("_build_menu: wired Disconnect + Pause actions")
         elif state == ConnectionState.PAUSED:
             act = _add_action(menu, "Resume")
             act.triggered.connect(self._on_resume)
             act2 = _add_action(menu, "Disconnect")
             act2.triggered.connect(self._on_stop)
+            logger.info("_build_menu: wired Resume + Disconnect actions")
         elif state == ConnectionState.CONNECTING:
             act = _add_action(menu, "Cancel (Disconnect)")
             act.triggered.connect(self._on_stop)
+            logger.info("_build_menu: wired Cancel action")
 
         menu.addSeparator()
 
@@ -237,14 +250,8 @@ class TwingateSystemTray(QSystemTrayIcon):
         quit_act = _add_action(menu, "Quit")
         quit_act.triggered.connect(self._on_quit)
 
-        self.setContextMenu(menu)
-        self._menu = menu  # prevent Python GC from destroying the menu
         actions = [a.text() for a in menu.actions() if not a.isSeparator()]
-        logger.info("_build_menu complete: actions=%s", actions)
-
-        # Clean up old menu
-        if old_menu is not None and old_menu is not menu:
-            old_menu.deleteLater()
+        logger.info("_build_menu complete: actions=%s (menu id=%s)", actions, id(menu))
 
     def _build_settings_menu(self, menu: QMenu) -> None:
         """Build the Settings submenu."""
