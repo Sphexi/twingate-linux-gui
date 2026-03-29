@@ -155,7 +155,9 @@ class TwingateSystemTray(QSystemTrayIcon):
             stderr = result.stderr[:MAX_NOTIFICATION_LEN]
             self._warn(f"{name} failed: {stderr}")
 
+        logger.info("Rebuilding menu after command: %s", name)
         self._build_menu()
+        logger.info("Menu rebuilt, forcing poll")
         self._poller.force_poll()
 
     def _disable_menu_actions(self) -> None:
@@ -177,6 +179,7 @@ class TwingateSystemTray(QSystemTrayIcon):
 
     def _build_menu(self) -> None:
         """Rebuild the entire context menu based on current state."""
+        logger.info("_build_menu called (state=%s)", self._current_status.state)
         old_menu = self.contextMenu()
         menu = QMenu()
         state = self._current_status.state
@@ -248,6 +251,8 @@ class TwingateSystemTray(QSystemTrayIcon):
         quit_act.triggered.connect(self._on_quit)
 
         self.setContextMenu(menu)
+        actions = [a.text() for a in menu.actions() if not a.isSeparator()]
+        logger.info("_build_menu complete: actions=%s", actions)
 
         # Clean up old menu to prevent memory leak
         if old_menu is not None:
