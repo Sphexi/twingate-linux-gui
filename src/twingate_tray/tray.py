@@ -279,10 +279,12 @@ class TwingateSystemTray(QSystemTrayIcon):
         if self._resources_menu is None:
             return
         self._resources_menu.clear()
+        logger.info("Populating resources menu")
 
         resources = self._client.resources(
             include_hidden=self._config.config.show_hidden_resources
         )
+        logger.info("Resources fetched: %d items", len(resources))
         if not resources:
             act = _add_action(self._resources_menu, "No resources available")
             act.setEnabled(False)
@@ -303,8 +305,10 @@ class TwingateSystemTray(QSystemTrayIcon):
         if self._accounts_menu is None:
             return
         self._accounts_menu.clear()
+        logger.info("Populating accounts menu")
 
         accounts = self._client.account_list()
+        logger.info("Accounts fetched: %d items", len(accounts))
         if not accounts:
             act = _add_action(self._accounts_menu, "No accounts configured")
             act.setEnabled(False)
@@ -329,8 +333,13 @@ class TwingateSystemTray(QSystemTrayIcon):
         if self._exit_nodes_menu is None:
             return
         self._exit_nodes_menu.clear()
+        logger.info("Populating exit nodes menu")
 
         nodes = self._client.exit_node_list()
+        logger.info("Exit nodes fetched: %d items", len(nodes))
+        for node in nodes:
+            logger.info("  node: name=%r cli=%r active=%s",
+                        node.name, node.cli_name, node.is_active)
         if not nodes:
             act = _add_action(self._exit_nodes_menu, "No exit nodes available")
             act.setEnabled(False)
@@ -393,22 +402,27 @@ class TwingateSystemTray(QSystemTrayIcon):
 
     def _on_connect(self) -> None:
         """Handle Connect / Start."""
+        logger.info("Action triggered: Connect")
         self._run_command("Connect", "start")
 
     def _on_stop(self) -> None:
         """Handle full Disconnect (stop)."""
+        logger.info("Action triggered: Disconnect")
         self._run_command("Disconnect", "stop")
 
     def _on_disconnect(self) -> None:
         """Handle Pause (soft disconnect)."""
+        logger.info("Action triggered: Pause")
         self._run_command("Pause", "disconnect")
 
     def _on_resume(self) -> None:
         """Handle Resume from paused state."""
+        logger.info("Action triggered: Resume")
         self._run_command("Resume", "connect")
 
     def _on_reauth(self) -> None:
         """Open browser for re-authentication."""
+        logger.info("Action triggered: Re-authenticate")
         self._run_command("Re-authenticate", "auth")
 
     # ------------------------------------------------------------------
