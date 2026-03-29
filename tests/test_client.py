@@ -311,90 +311,55 @@ class TestParseAccounts:
         result = CommandResult(success=True, stdout="", stderr="", returncode=0)
         assert client._parse_accounts(result) == []
 
-    def test_active_with_checkmark(self, client: TwingateClient) -> None:
-        result = CommandResult(
-            success=True,
-            stdout="✓ mycompany\nothercompany",
-            stderr="",
-            returncode=0,
-        )
-        accounts = client._parse_accounts(result)
-        assert len(accounts) == 2
-        assert accounts[0].name == "mycompany"
-        assert accounts[0].is_active is True
-        assert accounts[1].name == "othercompany"
-        assert accounts[1].is_active is False
-
-    def test_active_with_asterisk(self, client: TwingateClient) -> None:
-        result = CommandResult(
-            success=True,
-            stdout="* acme-corp\nwidgets-inc",
-            stderr="",
-            returncode=0,
-        )
-        accounts = client._parse_accounts(result)
-        assert accounts[0].is_active is True
-        assert accounts[1].is_active is False
-
     def test_failure_result_returns_empty_list(self, client: TwingateClient) -> None:
         """A failed CommandResult always returns an empty list."""
         result = CommandResult(success=False, stdout="some output", stderr="err", returncode=1)
         assert client._parse_accounts(result) == []
 
-    def test_active_with_heavy_checkmark_variant(self, client: TwingateClient) -> None:
-        """The ✔ (U+2714) checkmark variant is also recognised as active."""
+    def test_columnar_format_with_active_marker(self, client: TwingateClient) -> None:
+        """Active account is marked with * at end of line."""
         result = CommandResult(
             success=True,
-            stdout="✔ mycompany\nothercompany",
+            stdout=(
+                "EMAIL              NETWORK  NETWORK URL\n"
+                "user@example.com   acme     acme.twingate.com\n"
+                "user@example.com   corp     corp.twingate.com      *\n"
+            ),
             stderr="",
             returncode=0,
         )
         accounts = client._parse_accounts(result)
         assert len(accounts) == 2
-        assert accounts[0].is_active is True
-        assert accounts[0].name == "mycompany"
+        assert accounts[0].is_active is False
+        assert accounts[0].name == "acme (user@example.com)"
+        assert accounts[0].switch_id == "user@example.com:acme"
+        assert accounts[1].is_active is True
+        assert accounts[1].name == "corp (user@example.com)"
+        assert accounts[1].switch_id == "user@example.com:corp"
 
     def test_whitespace_only_lines_are_skipped(self, client: TwingateClient) -> None:
         """Lines that are blank or whitespace only do not produce account entries."""
         result = CommandResult(
             success=True,
-            stdout="mycompany\n   \nothercompany",
+            stdout=(
+                "EMAIL              NETWORK  NETWORK URL\n"
+                "user@a.com   net1     net1.twingate.com\n"
+                "   \n"
+                "user@b.com   net2     net2.twingate.com\n"
+            ),
             stderr="",
             returncode=0,
         )
         accounts = client._parse_accounts(result)
         assert len(accounts) == 2
 
-    def test_account_header_line_is_skipped(self, client: TwingateClient) -> None:
-        """A line beginning with 'Account' (the column header) is ignored."""
-        result = CommandResult(
-            success=True,
-            stdout="Account\n---\nmycompany",
-            stderr="",
-            returncode=0,
-        )
-        accounts = client._parse_accounts(result)
-        assert len(accounts) == 1
-        assert accounts[0].name == "mycompany"
-
-    def test_separator_lines_are_skipped(self, client: TwingateClient) -> None:
-        """Lines starting with '---' are treated as separators and ignored."""
-        result = CommandResult(
-            success=True,
-            stdout="---\nmycompany",
-            stderr="",
-            returncode=0,
-        )
-        accounts = client._parse_accounts(result)
-        assert len(accounts) == 1
-        assert accounts[0].name == "mycompany"
-
-    def test_real_cli_columnar_format(self, client: TwingateClient) -> None:
-        """Parse real CLI output with EMAIL, NETWORK, NETWORK URL columns."""
+    def test_header_lines_are_skipped(self, client: TwingateClient) -> None:
+        """EMAIL header and separator lines are ignored."""
         result = CommandResult(
             success=True,
             stdout=(
                 "EMAIL              NETWORK  NETWORK URL\n"
+                "---\n"
                 "user@example.com   acme     acme.twingate.com\n"
             ),
             stderr="",
@@ -404,26 +369,36 @@ class TestParseAccounts:
         assert len(accounts) == 1
         assert accounts[0].email == "user@example.com"
         assert accounts[0].network == "acme"
-        assert accounts[0].switch_id == "user@example.com:acme"
-        assert "acme" in accounts[0].name
-        assert "user@example.com" in accounts[0].name
 
-    def test_columnar_format_email_header_is_skipped(self, client: TwingateClient) -> None:
-        """The EMAIL header line is skipped in columnar format."""
+    def test_single_column_fallback(self, client: TwingateClient) -> None:
+        """Single-column lines are treated as name-only accounts."""
+        result = CommandResult(
+            success=True,
+            stdout="mycompany\n",
+            stderr="",
+            returncode=0,
+        )
+        accounts = client._parse_accounts(result)
+        assert len(accounts) == 1
+        assert accounts[0].name == "mycompany"
+
+    def test_multiple_accounts_same_email(self, client: TwingateClient) -> None:
+        """Multiple accounts with same email but different networks."""
         result = CommandResult(
             success=True,
             stdout=(
-                "EMAIL              NETWORK  NETWORK URL\n"
-                "a@b.com   net1     net1.twingate.com\n"
-                "c@d.com   net2     net2.twingate.com\n"
+                "EMAIL              NETWORK   NETWORK URL\n"
+                "user@example.com   staging   staging.twingate.com\n"
+                "user@example.com   prod      prod.twingate.com       *\n"
             ),
             stderr="",
             returncode=0,
         )
         accounts = client._parse_accounts(result)
         assert len(accounts) == 2
-        assert accounts[0].switch_id == "a@b.com:net1"
-        assert accounts[1].switch_id == "c@d.com:net2"
+        assert accounts[0].switch_id == "user@example.com:staging"
+        assert accounts[1].switch_id == "user@example.com:prod"
+        assert accounts[1].is_active is True
 
 
 # ------------------------------------------------------------------

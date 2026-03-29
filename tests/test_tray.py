@@ -65,23 +65,13 @@ class TestTrayActions:
         TwingateSystemTray._on_stop(tray)
         tray._run_command.assert_called_once_with("Disconnect", "stop")
 
-    def test_on_disconnect_calls_run_command(self) -> None:
+    def test_on_resource_auth_calls_run_command(self) -> None:
         tray = MagicMock(spec=TwingateSystemTray)
         tray._run_command = MagicMock()
-        TwingateSystemTray._on_disconnect(tray)
-        tray._run_command.assert_called_once_with("Pause", "disconnect")
-
-    def test_on_resume_calls_run_command(self) -> None:
-        tray = MagicMock(spec=TwingateSystemTray)
-        tray._run_command = MagicMock()
-        TwingateSystemTray._on_resume(tray)
-        tray._run_command.assert_called_once_with("Resume", "connect")
-
-    def test_on_reauth_calls_run_command(self) -> None:
-        tray = MagicMock(spec=TwingateSystemTray)
-        tray._run_command = MagicMock()
-        TwingateSystemTray._on_reauth(tray)
-        tray._run_command.assert_called_once_with("Re-authenticate", "auth")
+        TwingateSystemTray._on_resource_auth(tray, "my-resource")
+        tray._run_command.assert_called_once_with(
+            "Re-authenticate", "auth", ("my-resource",)
+        )
 
     @patch("twingate_tray.tray._find_terminal", return_value=("xterm", ["-e"]))
     @patch("twingate_tray.tray.subprocess.Popen")
@@ -121,11 +111,13 @@ class TestTrayActions:
             "account", "switch", "user@example.com:acme",
         ])
 
-    def test_on_exit_node_start_calls_run_command(self) -> None:
+    def test_start_exit_node_calls_run_command(self) -> None:
         tray = MagicMock(spec=TwingateSystemTray)
         tray._run_command = MagicMock()
-        TwingateSystemTray._on_exit_node_start(tray)
-        tray._run_command.assert_called_once_with("Enable routing", "exit_node_start")
+        TwingateSystemTray._start_exit_node(tray, "us-east-1")
+        tray._run_command.assert_called_once_with(
+            "Start exit node", "exit_node_start", ("us-east-1",)
+        )
 
     def test_on_exit_node_stop_calls_run_command(self) -> None:
         tray = MagicMock(spec=TwingateSystemTray)

@@ -196,15 +196,7 @@ class TwingateSystemTray(QSystemTrayIcon):
         elif state == ConnectionState.ONLINE:
             act = _add_action(menu, "Disconnect")
             act.triggered.connect(self._on_stop)
-            act2 = _add_action(menu, "Pause")
-            act2.triggered.connect(self._on_disconnect)
-            logger.info("_build_menu: wired Disconnect + Pause actions")
-        elif state == ConnectionState.PAUSED:
-            act = _add_action(menu, "Resume")
-            act.triggered.connect(self._on_resume)
-            act2 = _add_action(menu, "Disconnect")
-            act2.triggered.connect(self._on_stop)
-            logger.info("_build_menu: wired Resume + Disconnect actions")
+            logger.info("_build_menu: wired Disconnect action")
         elif state == ConnectionState.CONNECTING:
             act = _add_action(menu, "Cancel (Disconnect)")
             act.triggered.connect(self._on_stop)
@@ -229,12 +221,6 @@ class TwingateSystemTray(QSystemTrayIcon):
         self._exit_nodes_menu.aboutToShow.connect(
             self._populate_exit_nodes_menu
         )
-
-        menu.addSeparator()
-
-        # --- Re-authenticate ---
-        reauth = _add_action(menu, "Re-authenticate")
-        reauth.triggered.connect(self._on_reauth)
 
         menu.addSeparator()
 
@@ -299,11 +285,23 @@ class TwingateSystemTray(QSystemTrayIcon):
             act.setEnabled(False)
         else:
             for res in resources:
-                label = f"{res.name}  ({res.address})"
-                act = _add_action(self._resources_menu, label)
-                act.triggered.connect(
-                    lambda _c, addr=res.address: self._copy_to_clipboard(addr)
-                )
+                label = f"{res.name} ({res.address})"
+                if res.needs_auth:
+                    # Resource needs authentication — submenu with copy + auth
+                    res_menu = _add_submenu(self._resources_menu, label)
+                    copy_act = _add_action(res_menu, "Copy address")
+                    copy_act.triggered.connect(
+                        lambda _c, a=res.address: self._copy_to_clipboard(a)
+                    )
+                    auth_act = _add_action(res_menu, "Re-authenticate")
+                    auth_act.triggered.connect(
+                        lambda _c, r=res.name: self._on_resource_auth(r)
+                    )
+                else:
+                    act = _add_action(self._resources_menu, label)
+                    act.triggered.connect(
+                        lambda _c, a=res.address: self._copy_to_clipboard(a)
+                    )
 
         self._resources_menu.addSeparator()
         refresh = _add_action(self._resources_menu, "Refresh")
@@ -353,20 +351,24 @@ class TwingateSystemTray(QSystemTrayIcon):
             act = _add_action(self._exit_nodes_menu, "No exit nodes available")
             act.setEnabled(False)
         else:
+            has_active = any(n.is_active for n in nodes)
             for node in nodes:
                 act = _add_action(self._exit_nodes_menu, node.name)
                 act.setCheckable(True)
                 act.setChecked(node.is_active)
-                if not node.is_active:
+                if node.is_active:
+                    # Clicking active node disables routing
+                    act.triggered.connect(self._on_exit_node_stop)
+                elif has_active:
+                    # Another node is active — switch to this one
                     act.triggered.connect(
                         lambda _c, n=node.cli_name: self._switch_exit_node(n)
                     )
-
-            self._exit_nodes_menu.addSeparator()
-            enable = _add_action(self._exit_nodes_menu, "Enable Routing")
-            enable.triggered.connect(self._on_exit_node_start)
-            disable = _add_action(self._exit_nodes_menu, "Disable Routing")
-            disable.triggered.connect(self._on_exit_node_stop)
+                else:
+                    # No node active — start this one
+                    act.triggered.connect(
+                        lambda _c, n=node.cli_name: self._start_exit_node(n)
+                    )
 
     # ------------------------------------------------------------------
     # Signal handlers
@@ -419,20 +421,10 @@ class TwingateSystemTray(QSystemTrayIcon):
         logger.info("Action triggered: Disconnect")
         self._run_command("Disconnect", "stop")
 
-    def _on_disconnect(self) -> None:
-        """Handle Pause (soft disconnect)."""
-        logger.info("Action triggered: Pause")
-        self._run_command("Pause", "disconnect")
-
-    def _on_resume(self) -> None:
-        """Handle Resume from paused state."""
-        logger.info("Action triggered: Resume")
-        self._run_command("Resume", "connect")
-
-    def _on_reauth(self) -> None:
-        """Open browser for re-authentication."""
-        logger.info("Action triggered: Re-authenticate")
-        self._run_command("Re-authenticate", "auth")
+    def _on_resource_auth(self, resource_name: str) -> None:
+        """Trigger browser-based re-authentication for a specific resource."""
+        logger.info("Action triggered: Re-authenticate resource %r", resource_name)
+        self._run_command("Re-authenticate", "auth", (resource_name,))
 
     # ------------------------------------------------------------------
     # Account actions
@@ -495,16 +487,19 @@ class TwingateSystemTray(QSystemTrayIcon):
     # Exit node actions
     # ------------------------------------------------------------------
 
-    def _on_exit_node_start(self) -> None:
-        """Enable exit node routing."""
-        self._run_command("Enable routing", "exit_node_start")
-
     def _on_exit_node_stop(self) -> None:
         """Disable exit node routing."""
+        logger.info("Action triggered: Disable exit node routing")
         self._run_command("Disable routing", "exit_node_stop")
+
+    def _start_exit_node(self, name: str) -> None:
+        """Start routing through a specific exit node."""
+        logger.info("Action triggered: Start exit node %r", name)
+        self._run_command("Start exit node", "exit_node_start", (name,))
 
     def _switch_exit_node(self, name: str) -> None:
         """Switch to a different exit node."""
+        logger.info("Action triggered: Switch exit node %r", name)
         self._run_command("Switch exit node", "exit_node_switch", (name,))
 
     # ------------------------------------------------------------------

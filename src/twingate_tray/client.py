@@ -78,6 +78,7 @@ class TwingateResource:
     name: str
     address: str
     is_accessible: bool = True
+    needs_auth: bool = False
 
 
 @dataclass
@@ -243,9 +244,12 @@ class TwingateClient:
         result = self._run(["exit-node", "list"])
         return self._parse_exit_nodes(result)
 
-    def exit_node_start(self) -> CommandResult:
-        """Start routing all traffic through exit node."""
-        return self._run(["exit-node", "start"], privileged=True)
+    def exit_node_start(self, node_id: str | None = None) -> CommandResult:
+        """Start routing traffic through an exit node."""
+        args = ["exit-node", "start"]
+        if node_id:
+            args.append(self._validate_arg(node_id, "node_id"))
+        return self._run(args, privileged=True)
 
     def exit_node_stop(self) -> CommandResult:
         """Stop exit node routing."""
@@ -313,10 +317,13 @@ class TwingateClient:
     def _parse_resources(result: CommandResult) -> list[TwingateResource]:
         """Parse ``twingate resources`` output into a list of resources.
 
-        Expected formats (colors disabled):
-          resource_name    address
-          resource_name    address    status_info
-        Lines that look like headers or separators are skipped.
+        Expected format (colors disabled)::
+
+            RESOURCE NAME         ADDRESS                    ALIAS              AUTH STATUS
+            Docker Host          10.4.96.4                  docker.internal
+            🏠 My Resource       myhost.example.com         -                  Pending
+
+        Columns are separated by tabs or 2+ whitespace characters.
         """
         if not result.success or not result.stdout:
             return []
@@ -324,22 +331,33 @@ class TwingateClient:
         resources: list[TwingateResource] = []
         for line in result.stdout.splitlines():
             line = line.strip()
-            if not line or line.startswith("-") or line.lower().startswith("name"):
+            if not line or line.startswith("-"):
                 continue
-            # Split on 2+ whitespace characters to separate columns
-            parts = re.split(r"\s{2,}", line)
+            # Skip header lines
+            lower = line.lower()
+            if lower.startswith("resource") or lower.startswith("name"):
+                continue
+            # Split on tabs or 2+ whitespace to separate columns
+            parts = re.split(r"\t|\s{2,}", line)
+            # Filter out empty parts from consecutive separators
+            parts = [p.strip() for p in parts if p.strip()]
             if len(parts) >= 2:
-                name = parts[0].strip()
-                address = parts[1].strip()
+                name = parts[0]
+                address = parts[1]
                 is_accessible = True
-                if len(parts) >= 3:
-                    status = parts[2].strip().lower()
-                    is_accessible = "denied" not in status and "locked" not in status
-                resources.append(
-                    TwingateResource(name=name, address=address, is_accessible=is_accessible)
-                )
+                needs_auth = False
+                # Check remaining columns for auth status
+                for part in parts[2:]:
+                    p = part.lower()
+                    if "pending" in p:
+                        needs_auth = True
+                    if "denied" in p or "locked" in p:
+                        is_accessible = False
+                resources.append(TwingateResource(
+                    name=name, address=address,
+                    is_accessible=is_accessible, needs_auth=needs_auth,
+                ))
             elif len(parts) == 1 and parts[0]:
-                # Single column — treat as name=address
                 resources.append(TwingateResource(name=parts[0], address=parts[0]))
 
         return resources
@@ -352,8 +370,9 @@ class TwingateClient:
 
             EMAIL              NETWORK  NETWORK URL
             user@example.com   acme     acme.twingate.com
+            user@example.com   corp     corp.twingate.com      *
 
-        Also handles legacy single-column format with check/asterisk markers.
+        The ``*`` at the end indicates the active account.
         """
         if not result.success or not result.stdout:
             return []
@@ -366,26 +385,26 @@ class TwingateClient:
             # Skip header lines
             if line.lower().startswith("email") or line.lower().startswith("account"):
                 continue
-            is_active = bool(re.search(r"[✓✔*]", line))
-            # Split on 2+ whitespace to separate columns
-            parts = re.split(r"\s{2,}", line)
+            # Check for active marker at end of line
+            is_active = bool(re.search(r"[✓✔*]\s*$", line))
+            # Remove trailing active markers before parsing columns
+            clean_line = re.sub(r"\s*[✓✔*]\s*$", "", line).strip()
+            # Split on tabs or 2+ whitespace to separate columns
+            parts = re.split(r"\t|\s{2,}", clean_line)
+            parts = [p.strip() for p in parts if p.strip()]
             if len(parts) >= 2:
-                # Columnar format: EMAIL  NETWORK  [NETWORK URL]
-                email = _clean_cli_name(parts[0])
-                network = parts[1].strip()
-                # Display as "network (email)" for the menu label
-                display_name = f"{network} ({email})" if email else network
+                email = parts[0]
+                network = parts[1]
+                display_name = f"{network} ({email})"
                 accounts.append(TwingateAccount(
                     name=display_name,
                     is_active=is_active,
                     email=email,
                     network=network,
                 ))
-            else:
-                # Single-column fallback
-                name = _clean_cli_name(line)
-                if name:
-                    accounts.append(TwingateAccount(name=name, is_active=is_active))
+            elif parts:
+                name = parts[0]
+                accounts.append(TwingateAccount(name=name, is_active=is_active))
 
         return accounts
 
